@@ -87,8 +87,18 @@ main() {
   if [[ -w "$target_dir" ]]; then
     mv "$tmpfile" "$target_path"
   else
-    echo "🔒 '${target_dir}' requires elevated permissions. Using sudo to install..."
-    sudo mv "$tmpfile" "$target_path"
+    echo "🔒 '${target_dir}' requires elevated permissions to install."
+    echo ""
+    read -p "Use sudo to install rn-clean to ${target_dir}? [y/N]: " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      echo "🔧 Installing with sudo..."
+      sudo mv "$tmpfile" "$target_path"
+    else
+      echo "❌ Installation cancelled by user."
+      rm "$tmpfile"
+      exit 1
+    fi
   fi
 
   chmod +x "$target_path"
