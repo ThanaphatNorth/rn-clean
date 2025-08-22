@@ -1,199 +1,281 @@
-#!/bin/bash
+#!/usr/bin/env bash
+# rn-clean.sh — Robust React Native cleanup + reinstall
+# Usage:
+#   ./rn-clean.sh [--yes] [--dry-run] [--no-ios] [--no-android] [--no-install] [--no-pods]
+#                 [--pm npm|yarn|pnpm|bun] [--legacy-peer-deps] [--npm-ci]
+# Env:
+#   LOG_FILE=/tmp/rn-clean.log (override to change)
+# Notes:
+#   - Deletes node_modules, Pods, Gradle caches/builds, DerivedData (macOS), etc.
+#   - Reinstalls deps (npm/yarn/pnpm/bun) and runs `pod install` unless skipped.
+#   - Writes full logs to $LOG_FILE
 
-LOG_FILE="/tmp/rn-clean.log"
+set -Eeuo pipefail
+
+# ========== Config ==========
+LOG_FILE="${LOG_FILE:-/tmp/rn-clean.log}"
 FAILED_COMMANDS=0
+CONFIRM=false
+DRY_RUN=false
+DO_IOS=true
+DO_ANDROID=true
+DO_INSTALL=true
+DO_PODS=true
+RUN_RN_CLEAN_PROJECT=true
+LEGACY_PEER_DEPS=false
+NPM_CI=false
+PM=""   # auto-detect unless --pm provided
 
-# Function to check if last command failed due to permission denied
+# ========== Colors ==========
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  BOLD="\033[1m"; DIM="\033[2m"; RED="\033[31m"; YEL="\033[33m"; GRN="\033[32m"; BLU="\033[34m"; RST="\033[0m"
+else
+  BOLD=""; DIM=""; RED=""; YEL=""; GRN=""; BLU=""; RST=""
+fi
+
+# ========== Utils ==========
+log()   { echo -e "${BLU}ℹ${RST}  $*"; }
+ok()    { echo -e "${GRN}✅${RST} $*"; }
+warn()  { echo -e "${YEL}⚠${RST}  $*"; }
+err()   { echo -e "${RED}❌${RST} $*"; }
+
+append_log() { printf "%s\n" "$*" >>"$LOG_FILE"; }
+
 check_permission_denied() {
-    if tail -n 20 "$LOG_FILE" | grep -q "Permission denied\|Operation not permitted"; then
-        return 0
-    fi
-    return 1
+  tail -n 50 "$LOG_FILE" | grep -qiE "permission denied|operation not permitted"
 }
 
-# Function to run command with error handling and permission recovery
-run_command() {
-    local description="$1"
-    shift
-    echo "🔧 $description"
-
-    if "$@" >> "$LOG_FILE" 2>&1; then
-        echo "✅ $description - SUCCESS"
-    else
-        if check_permission_denied; then
-            echo "🔐 Permission denied detected, fixing ownership with sudo chown..."
-            if sudo chown -R $(whoami) . >> "$LOG_FILE" 2>&1; then
-                echo "✅ Ownership fixed, retrying $description..."
-                if "$@" >> "$LOG_FILE" 2>&1; then
-                    echo "✅ $description - SUCCESS (after ownership fix)"
-                else
-                    echo "❌ $description - FAILED even after ownership fix (continuing...)"
-                    echo "Error output:"
-                    tail -n 10 "$LOG_FILE"
-                    echo "---"
-                    FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
-                fi
-            else
-                echo "❌ Failed to fix ownership, $description - FAILED (continuing...)"
-                echo "Error output:"
-                tail -n 10 "$LOG_FILE"
-                echo "---"
-                FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
-            fi
-        else
-            echo "❌ $description - FAILED (continuing...)"
-            echo "Error output:"
-            tail -n 10 "$LOG_FILE"
-            echo "---"
-            FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
-        fi
+# safe runner with auto chown retry
+run() {
+  local desc="$1"; shift
+  echo -e "${BOLD}🔧 $desc${RST}"
+  if $DRY_RUN; then
+    echo "DRY-RUN: $*" | tee -a "$LOG_FILE"
+    ok "$desc - SKIPPED (dry-run)"
+    return 0
+  fi
+  if "$@" >>"$LOG_FILE" 2>&1; then
+    ok "$desc - SUCCESS"
+    return 0
+  fi
+  if check_permission_denied; then
+    warn "Permission denied — attempting: sudo chown -R $(whoami) ."
+    if sudo chown -R "$(whoami)" . >>"$LOG_FILE" 2>&1 && "$@" >>"$LOG_FILE" 2>&1; then
+      ok "$desc - SUCCESS (after ownership fix)"
+      return 0
     fi
+  fi
+  err "$desc - FAILED (continuing...)"
+  tail -n 20 "$LOG_FILE" | sed 's/^/  /'
+  FAILED_COMMANDS=$((FAILED_COMMANDS+1))
+  return 1
 }
 
-# Initialize log file
-echo "React Native Clean Script Log - $(date)" > "$LOG_FILE"
-echo "🧹 Starting React Native project cleanup..."
+confirm_or_exit() {
+  $CONFIRM && return 0
+  read -r -p "This will DELETE caches/builds (safe). Continue? [y/N] " ans
+  [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]] || { warn "Canceled."; exit 0; }
+}
 
-# Run react-native-clean-project with automated responses
-echo "🧽 Running npx react-native-clean-project..."
-if command -v npx >/dev/null 2>&1; then
-    echo -e "y\ny\ny\ny\nn\ny\ny\ny\nn" | npx react-native-clean-project >> "$LOG_FILE" 2>&1
-    if [ $? -eq 0 ]; then
-        echo "✅ npx react-native-clean-project - SUCCESS"
-    else
-        echo "❌ npx react-native-clean-project - FAILED (continuing...)"
-        echo "Error output:"
-        tail -n 10 "$LOG_FILE"
-        echo "---"
-        FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
-    fi
+is_macos() { [[ "${OSTYPE:-}" == darwin* ]]; }
+
+ensure_project_root() {
+  if [[ ! -f package.json ]]; then
+    err "package.json not found. Run from your React Native project root."
+    exit 1
+  fi
+}
+
+detect_pm() {
+  [[ -n "$PM" ]] && return 0
+  if command -v pnpm >/dev/null 2>&1 && [[ -f pnpm-lock.yaml ]]; then PM="pnpm"
+  elif command -v yarn >/dev/null 2>&1 && [[ -f yarn.lock ]]; then PM="yarn"
+  elif command -v bun  >/dev/null 2>&1 && [[ -f bun.lockb ]]; then PM="bun"
+  else PM="npm"; fi
+}
+
+pm_install() {
+  case "$PM" in
+    npm)
+      if $NPM_CI && [[ -f package-lock.json ]]; then
+        $LEGACY_PEER_DEPS && run "npm ci (legacy-peer-deps ignored by ci)" npm ci || run "npm ci" npm ci
+      else
+        if $LEGACY_PEER_DEPS; then run "npm install --legacy-peer-deps" npm install --legacy-peer-deps
+        else run "npm install" npm install; fi
+      fi
+      ;;
+    yarn)  run "yarn install" yarn install ;;
+    pnpm)  run "pnpm install" pnpm install ;;
+    bun)   run "bun install" bun install ;;
+    *) err "Unknown package manager: $PM"; exit 1 ;;
+  esac
+}
+
+pm_cache_clean() {
+  case "$PM" in
+    npm)  run "Cleaning npm cache" npm cache clean --force ;;
+    yarn) run "Cleaning yarn cache" yarn cache clean ;;
+    pnpm) run "Pruning pnpm store" pnpm store prune ;;
+    bun)  log "Bun has no cache clean cmd; skipping";;
+  esac
+}
+
+gradle_cmd() {
+  ( cd android && ./gradlew "$@" )
+}
+
+# ========== Args ==========
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --yes|-y) CONFIRM=true ;;
+    --dry-run) DRY_RUN=true ;;
+    --no-ios) DO_IOS=false ;;
+    --no-android) DO_ANDROID=false ;;
+    --no-install) DO_INSTALL=false ;;
+    --no-pods) DO_PODS=false ;;
+    --no-clean-project) RUN_RN_CLEAN_PROJECT=false ;;
+    --legacy-peer-deps) LEGACY_PEER_DEPS=true ;;
+    --npm-ci) NPM_CI=true ;;
+    --pm) PM="${2:-}"; shift ;;
+    -h|--help)
+      cat <<EOF
+Usage: $0 [options]
+  --yes|-y              Skip confirmation
+  --dry-run             Show actions without executing
+  --no-ios              Skip iOS cleanup
+  --no-android          Skip Android cleanup
+  --no-install          Skip reinstalling JS deps
+  --no-pods             Skip CocoaPods install
+  --no-clean-project    Skip 'react-native-clean-project'
+  --pm <npm|yarn|pnpm|bun>  Force package manager
+  --legacy-peer-deps    Use npm --legacy-peer-deps when installing
+  --npm-ci              Use npm ci when possible
+  -h, --help            Show this help
+EOF
+      exit 0
+      ;;
+    *) warn "Unknown option: $1";;
+  esac
+  shift
+done
+
+# ========== Start ==========
+: > "$LOG_FILE"
+echo "React Native Clean Script Log - $(date)" >> "$LOG_FILE"
+
+ensure_project_root
+detect_pm
+
+echo -e "🧹 ${BOLD}Starting React Native project cleanup${RST}"
+echo "  PM: $PM"
+echo "  Log: $LOG_FILE"
+confirm_or_exit
+echo
+
+# Optional: react-native-clean-project
+if $RUN_RN_CLEAN_PROJECT && command -v npx >/dev/null 2>&1; then
+  log "Running npx react-native-clean-project (auto-answers)..."
+  if $DRY_RUN; then echo "DRY-RUN: npx react-native-clean-project" | tee -a "$LOG_FILE"
+  else
+    # Answer prompts: yes to most, avoid deleting iOS/Android projects themselves.
+    printf "y\ny\ny\ny\nn\ny\ny\ny\nn\n" | npx react-native-clean-project >>"$LOG_FILE" 2>&1 || {
+      warn "react-native-clean-project failed (continuing...)"
+      tail -n 20 "$LOG_FILE" | sed 's/^/  /'
+      FAILED_COMMANDS=$((FAILED_COMMANDS+1))
+    }
+    ok "npx react-native-clean-project"
+  fi
 else
-    echo "⚠️  npx not found, skipping react-native-clean-project..."
+  warn "Skipping react-native-clean-project (npx not found or disabled)."
 fi
 
-# Remove node_modules
-run_command "Removing node_modules" rm -rf node_modules
-run_command "Removing package-lock.json" rm -rf package-lock.json
+# Remove JS deps & lock (lock optional)
+run "Removing node_modules" rm -rf node_modules
+if [[ -f package-lock.json ]]; then run "Removing package-lock.json" rm -f package-lock.json; fi
+if [[ -f yarn.lock ]]; then run "Removing yarn.lock" rm -f yarn.lock; fi
+if [[ -f pnpm-lock.yaml ]]; then run "Removing pnpm-lock.yaml" rm -f pnpm-lock.yaml; fi
+if [[ -f bun.lockb ]]; then run "Removing bun.lockb" rm -f bun.lockb; fi
 
-# Remove iOS Pods and builds
-run_command "Cleaning iOS Pods" rm -rf ios/Pods
-run_command "Removing Podfile.lock" rm -rf ios/Podfile.lock
-
-# Remove Android builds and gradle (moved before gradlew clean)
-run_command "Cleaning iOS build" rm -rf ios/build
-run_command "Cleaning Android .gradle" rm -rf android/.gradle
-run_command "Cleaning Android build" rm -rf android/build
-run_command "Cleaning Android app build" rm -rf android/app/build
-run_command "Cleaning Gradle caches" rm -rf ~/.gradle/caches/
-run_command "Cleaning Gradle daemon" rm -rf ~/.gradle/daemon/
-run_command "Cleaning Gradle native" rm -rf ~/.gradle/native/
-run_command "Cleaning Gradle kotlin" rm -rf ~/.gradle/kotlin/
-run_command "Cleaning local .gradle" rm -rf .gradle
-run_command "Cleaning Android .cxx" rm -rf android/.cxx
-run_command "Cleaning Android app .cxx" rm -rf android/app/.cxx
-
-# Stop gradle daemon before clean
-echo "⏹️  Stopping Gradle daemon..."
-if [ -d "android" ]; then
-    cd android
-    if ./gradlew --stop >> "$LOG_FILE" 2>&1; then
-        echo "✅ Stopping Gradle daemon - SUCCESS"
+# iOS cleanup
+if $DO_IOS; then
+  if [[ -d ios ]]; then
+    run "Cleaning iOS Pods" rm -rf ios/Pods ios/Podfile.lock
+    run "Cleaning iOS build" rm -rf ios/build
+    if is_macos; then
+      run "Cleaning Xcode DerivedData" rm -rf ~/Library/Developer/Xcode/DerivedData
     else
-        echo "❌ Stopping Gradle daemon - FAILED (continuing...)"
-        echo "Error output:"
-        tail -n 10 "$LOG_FILE"
-        echo "---"
-        FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
+      log "Non-macOS detected; skipping DerivedData."
     fi
-    cd ..
-else
-    echo "⚠️  Android directory not found, skipping Gradle daemon stop..."
+  else
+    warn "iOS directory not found; skipping iOS."
+  fi
 fi
 
-# Clean Xcode derived data
-run_command "Cleaning Xcode DerivedData" rm -rf ~/Library/Developer/Xcode/DerivedData
+# Android cleanup
+if $DO_ANDROID; then
+  if [[ -d android ]]; then
+    run "Cleaning Android .gradle (project)" rm -rf android/.gradle
+    run "Cleaning Android build dirs" rm -rf android/build android/app/build
+    run "Cleaning local .gradle" rm -rf .gradle
+    run "Cleaning Android CMake (.cxx)" rm -rf android/.cxx android/app/.cxx
+    # Global Gradle caches (can be large)
+    run "Cleaning Gradle caches" rm -rf "${HOME}/.gradle/caches/"
+    run "Cleaning Gradle daemon" rm -rf "${HOME}/.gradle/daemon/"
+    run "Cleaning Gradle native" rm -rf "${HOME}/.gradle/native/"
+    run "Cleaning Gradle kotlin" rm -rf "${HOME}/.gradle/kotlin/"
+    # Stop daemon gracefully
+    if [[ -x android/gradlew ]]; then
+      run "Stopping Gradle daemon" bash -lc 'cd android && ./gradlew --stop'
+    fi
+  else
+    warn "Android directory not found; skipping Android."
+  fi
+fi
 
-# Clear watchman watches
-echo "👀 Clearing Watchman watches..."
+# Watchman
 if command -v watchman >/dev/null 2>&1; then
-    if watchman watch-del-all >> "$LOG_FILE" 2>&1; then
-        echo "✅ Clearing Watchman watches - SUCCESS"
-    else
-        echo "❌ Clearing Watchman watches - FAILED (continuing...)"
-        echo "Error output:"
-        tail -n 10 "$LOG_FILE"
-        echo "---"
-        FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
-    fi
+  run "Clearing Watchman watches" watchman watch-del-all
 else
-    echo "⚠️  Watchman not found, skipping..."
+  warn "Watchman not found; skipping."
 fi
 
+# JS Cache clean (pm-specific)
+pm_cache_clean
 
-# Clean npm cache
-run_command "Cleaning npm cache" npm cache clean --force
-
-# Install npm dependencies
-echo "⬇️  Installing npm dependencies..."
-if npm install --legacy-peer-deps >> "$LOG_FILE" 2>&1; then
-    echo "✅ Installing npm dependencies - SUCCESS"
+# Reinstall JS deps
+if $DO_INSTALL; then
+  log "Installing JS dependencies ($PM)..."
+  pm_install
 else
-    echo "❌ Installing npm dependencies - FAILED (continuing...)"
-    echo "Error output:"
-    tail -n 10 "$LOG_FILE"
-    echo "---"
-    FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
+  warn "Skipping JS install (--no-install)."
 fi
 
-# Install iOS pods
-echo "🍎 Installing iOS Pods..."
-if [ -d "ios" ]; then
-    cd ios
-    echo "🔧 Trying pod install (without repo update)..."
-    if pod install >> "$LOG_FILE" 2>&1; then
-        echo "✅ Installing iOS Pods - SUCCESS"
-    else
-        echo "❌ Pod install failed, trying with --repo-update..."
-        if pod install --repo-update >> "$LOG_FILE" 2>&1; then
-            echo "✅ Installing iOS Pods with repo update - SUCCESS"
-        else
-            echo "❌ Installing iOS Pods - FAILED (continuing...)"
-            echo "Error output:"
-            tail -n 10 "$LOG_FILE"
-            echo "---"
-            FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
-        fi
-    fi
-    cd ..
-else
-    echo "⚠️  iOS directory not found, skipping Pod install..."
+# CocoaPods install
+if $DO_IOS && $DO_PODS && [[ -d ios ]] && is_macos; then
+  if command -v pod >/dev/null 2>&1; then
+    (
+      cd ios
+      run "pod install" pod install || {
+        warn "pod install failed; retry with --repo-update"
+        run "pod install --repo-update" pod install --repo-update || true
+      }
+    )
+  else
+    warn "CocoaPods not found; skipped."
+  fi
+elif $DO_IOS && ! is_macos; then
+  warn "CocoaPods install skipped on non-macOS."
 fi
 
-# Clean Android with Gradle
-echo "🧼 Cleaning Android with Gradle..."
-if [ -d "android" ]; then
-    cd android
-    if ./gradlew clean --no-daemon >> "$LOG_FILE" 2>&1; then
-        echo "✅ Cleaning Android with Gradle - SUCCESS"
-    else
-        echo "❌ Cleaning Android with Gradle - FAILED (continuing...)"
-        echo "Error output:"
-        tail -n 10 "$LOG_FILE"
-        echo "---"
-        FAILED_COMMANDS=$((FAILED_COMMANDS + 1))
-    fi
-    cd ..
-else
-    echo "⚠️  Android directory not found, skipping Gradle clean..."
+# Gradle clean
+if $DO_ANDROID && [[ -d android ]] && [[ -x android/gradlew ]]; then
+  run "Gradle clean (no-daemon)" bash -lc 'cd android && ./gradlew clean --no-daemon'
 fi
 
-echo ""
-echo "🎉 React Native project cleanup completed!"
-
-if [ $FAILED_COMMANDS -eq 0 ]; then
-    echo "🌟 All commands executed successfully! Your project is now clean and ready."
+echo
+if (( FAILED_COMMANDS == 0 )); then
+  echo -e "🎉 ${BOLD}Cleanup completed successfully!${RST}"
 else
-    echo "⚠️  Cleanup completed with $FAILED_COMMANDS failed command(s). Check the log for details."
+  echo -e "⚠  Cleanup completed with ${FAILED_COMMANDS} failed command(s). See log."
 fi
-
-echo "📋 Full log available at: $LOG_FILE"%
+echo "📋 Log: $LOG_FILE"
