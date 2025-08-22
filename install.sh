@@ -82,7 +82,11 @@ main() {
     sudo mv "$tmpfile" "$target_path"
   fi
 
-  chmod +x "$target_path"
+  if [[ -w "$target_dir" ]]; then
+    chmod +x "$target_path"
+  else
+    sudo chmod 755 "$target_path"
+  fi
 
   echo "✅ Installed: ${target_path}"
   ensure_dir_on_path "$target_dir"
