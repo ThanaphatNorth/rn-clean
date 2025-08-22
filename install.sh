@@ -16,8 +16,36 @@ choose_target_dir() {
   # Prefer /usr/local/bin when writable, else ~/.local/bin (create if needed)
   if [[ -w "/usr/local/bin" ]]; then
     echo "/usr/local/bin"
+  elif [[ -d "/usr/local/bin" ]]; then
+    # /usr/local/bin exists but is not writable, ask for permission to make it writable
+    echo "🔒 /usr/local/bin exists but is not writable by your user."
+    echo "   This is the preferred location for system-wide installations."
+    echo ""
+    read -p "Make /usr/local/bin writable for your user? [y/N]: " -n 1 -r
+    echo
+    if [[ $REPLY =~ ^[Yy]$ ]]; then
+      echo "🔧 Making /usr/local/bin writable..."
+      if sudo chown "$(whoami)" "/usr/local/bin"; then
+        echo "✅ /usr/local/bin is now writable by your user."
+        echo "/usr/local/bin"
+      else
+        echo "❌ Failed to make /usr/local/bin writable. Using ~/.local/bin instead."
+        echo "${HOME}/.local/bin"
+      fi
+    else
+      echo "📁 Using ~/.local/bin for user-specific installation."
+      echo "${HOME}/.local/bin"
+    fi
   else
-    echo "${HOME}/.local/bin"
+    # /usr/local/bin doesn't exist, create it with proper permissions
+    echo "📁 /usr/local/bin doesn't exist. Creating it..."
+    if sudo mkdir -p "/usr/local/bin" && sudo chown "$(whoami)" "/usr/local/bin"; then
+      echo "✅ Created /usr/local/bin with your user ownership."
+      echo "/usr/local/bin"
+    else
+      echo "❌ Failed to create /usr/local/bin. Using ~/.local/bin instead."
+      echo "${HOME}/.local/bin"
+    fi
   fi
 }
 
