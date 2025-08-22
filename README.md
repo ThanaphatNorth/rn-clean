@@ -1,7 +1,7 @@
 # 🧹 React Native Clean Script
 
 A robust cleanup script for React Native projects.  
-Removes caches, Pods, Gradle builds, and reinstall dependencies with one command.  
+Removes caches, Pods, Gradle builds, and reinstalls dependencies with one command.  
 
 Designed for safety, automation, and convenience for developers who often struggle with “weird build issues”.
 
@@ -27,9 +27,10 @@ Designed for safety, automation, and convenience for developers who often strugg
 
 ## 🚀 Quick Start
 
+### Run once inside a project
 ```bash
 # Download
-curl -O https://raw.githubusercontent.com/<your-username>/<your-repo>/main/rn-clean.sh
+curl -O https://raw.githubusercontent.com/ThanaphatNorth/rn-clean/main/rn-clean.sh
 
 # Make executable
 chmod +x rn-clean.sh
@@ -38,7 +39,30 @@ chmod +x rn-clean.sh
 ./rn-clean.sh
 ```
 
-> Full logs available at `/tmp/rn-clean.log`
+Logs are stored in `/tmp/rn-clean.log`.
+
+---
+
+## 🌍 Global Installation
+
+Install once, then run `rn-clean` globally in any React Native project.
+
+```bash
+# Install globally (macOS/Linux)
+curl -fsSL https://raw.githubusercontent.com/ThanaphatNorth/rn-clean/main/install.sh | bash
+```
+
+This installs `rn-clean` to `/usr/local/bin` (or `~/.local/bin` if `/usr/local/bin` is not writable).  
+
+If `~/.local/bin` is used, ensure it’s on your PATH:
+```bash
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc
+```
+
+### Uninstall
+```bash
+curl -fsSL https://raw.githubusercontent.com/ThanaphatNorth/rn-clean/main/uninstall.sh | bash
+```
 
 ---
 
@@ -63,22 +87,22 @@ chmod +x rn-clean.sh
 
 ```bash
 # Default cleanup
-./rn-clean.sh
+rn-clean
 
 # Clean without reinstalling deps
-./rn-clean.sh --no-install
+rn-clean --no-install
 
 # Dry-run to preview actions
-./rn-clean.sh --dry-run
+rn-clean --dry-run
 
 # Force Yarn as package manager
-./rn-clean.sh --pm yarn
+rn-clean --pm yarn
 ```
 
 ---
 
 ## 🔒 Safety Notes
-- Deletes common build/cache directories only—never source code.
+- Deletes only common build/cache directories — never source code.
 - Always prompts before destructive actions (unless `--yes`).
 - Logs everything to `/tmp/rn-clean.log`.
 
