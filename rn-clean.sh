@@ -71,11 +71,6 @@ run() {
   return 1
 }
 
-confirm_or_exit() {
-  $CONFIRM && return 0
-  read -r -p "This will DELETE caches/builds (safe). Continue? [y/N] " ans
-  [[ "${ans,,}" == "y" || "${ans,,}" == "yes" ]] || { warn "Canceled."; exit 0; }
-}
 
 is_macos() { [[ "${OSTYPE:-}" == darwin* ]]; }
 
@@ -169,7 +164,6 @@ detect_pm
 echo -e "🧹 ${BOLD}Starting React Native project cleanup${RST}"
 echo "  PM: $PM"
 echo "  Log: $LOG_FILE"
-confirm_or_exit
 echo
 
 # Optional: react-native-clean-project
