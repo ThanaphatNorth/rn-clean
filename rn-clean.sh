@@ -119,6 +119,92 @@ gradle_cmd() {
   ( cd android && ./gradlew "$@" )
 }
 
+show_task_list() {
+  echo -e "${BOLD}📋 Tasks to be performed:${RST}"
+  echo
+  
+  # React Native Clean Project
+  if $RUN_RN_CLEAN_PROJECT && command -v npx >/dev/null 2>&1; then
+    echo -e "  ${BLU}•${RST} Run react-native-clean-project"
+  fi
+  
+  # JavaScript cleanup
+  echo -e "  ${BLU}•${RST} Remove node_modules directory"
+  [[ -f package-lock.json ]] && echo -e "  ${BLU}•${RST} Remove package-lock.json"
+  [[ -f yarn.lock ]] && echo -e "  ${BLU}•${RST} Remove yarn.lock"
+  [[ -f pnpm-lock.yaml ]] && echo -e "  ${BLU}•${RST} Remove pnpm-lock.yaml"
+  [[ -f bun.lockb ]] && echo -e "  ${BLU}•${RST} Remove bun.lockb"
+  
+  # iOS cleanup
+  if $DO_IOS && [[ -d ios ]]; then
+    echo -e "  ${BLU}•${RST} Clean iOS Pods and Podfile.lock"
+    echo -e "  ${BLU}•${RST} Clean iOS build directory"
+    if is_macos; then
+      echo -e "  ${BLU}•${RST} Clean Xcode DerivedData"
+    fi
+  fi
+  
+  # Android cleanup
+  if $DO_ANDROID && [[ -d android ]]; then
+    echo -e "  ${BLU}•${RST} Clean Android .gradle (project)"
+    echo -e "  ${BLU}•${RST} Clean Android build directories"
+    echo -e "  ${BLU}•${RST} Clean local .gradle"
+    echo -e "  ${BLU}•${RST} Clean Android CMake (.cxx)"
+    echo -e "  ${BLU}•${RST} Clean global Gradle caches"
+    echo -e "  ${BLU}•${RST} Clean Gradle daemon"
+    echo -e "  ${BLU}•${RST} Clean Gradle native"
+    echo -e "  ${BLU}•${RST} Clean Gradle kotlin"
+    if [[ -x android/gradlew ]]; then
+      echo -e "  ${BLU}•${RST} Stop Gradle daemon"
+    fi
+  fi
+  
+  # Watchman
+  if command -v watchman >/dev/null 2>&1; then
+    echo -e "  ${BLU}•${RST} Clear Watchman watches"
+  fi
+  
+  # Package manager cache
+  case "$PM" in
+    npm)  echo -e "  ${BLU}•${RST} Clean npm cache" ;;
+    yarn) echo -e "  ${BLU}•${RST} Clean yarn cache" ;;
+    pnpm) echo -e "  ${BLU}•${RST} Prune pnpm store" ;;
+    bun)  ;; # No cache clean for bun
+  esac
+  
+  # Reinstall dependencies
+  if $DO_INSTALL; then
+    case "$PM" in
+      npm)
+        if $NPM_CI && [[ -f package-lock.json ]]; then
+          echo -e "  ${BLU}•${RST} Install dependencies with npm ci"
+        else
+          if $LEGACY_PEER_DEPS; then
+            echo -e "  ${BLU}•${RST} Install dependencies with npm (legacy-peer-deps)"
+          else
+            echo -e "  ${BLU}•${RST} Install dependencies with npm"
+          fi
+        fi
+        ;;
+      yarn) echo -e "  ${BLU}•${RST} Install dependencies with yarn" ;;
+      pnpm) echo -e "  ${BLU}•${RST} Install dependencies with pnpm" ;;
+      bun)  echo -e "  ${BLU}•${RST} Install dependencies with bun" ;;
+    esac
+  fi
+  
+  # CocoaPods
+  if $DO_IOS && $DO_PODS && [[ -d ios ]] && is_macos && command -v pod >/dev/null 2>&1; then
+    echo -e "  ${BLU}•${RST} Run pod install"
+  fi
+  
+  # Gradle clean
+  if $DO_ANDROID && [[ -d android ]] && [[ -x android/gradlew ]]; then
+    echo -e "  ${BLU}•${RST} Run Gradle clean"
+  fi
+  
+  echo
+}
+
 # ========== Args ==========
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -135,6 +221,10 @@ while [[ $# -gt 0 ]]; do
     -h|--help)
       cat <<EOF
 Usage: $0 [options]
+
+React Native cleanup script that shows all tasks before execution.
+
+Options:
   --yes|-y              Skip confirmation
   --dry-run             Show actions without executing
   --no-ios              Skip iOS cleanup
@@ -146,6 +236,9 @@ Usage: $0 [options]
   --legacy-peer-deps    Use npm --legacy-peer-deps when installing
   --npm-ci              Use npm ci when possible
   -h, --help            Show this help
+
+The script displays all tasks that will be performed before execution,
+giving you a clear overview of what will be cleaned and reinstalled.
 EOF
       exit 0
       ;;
@@ -165,6 +258,20 @@ echo -e "🧹 ${BOLD}Starting React Native project cleanup${RST}"
 echo "  PM: $PM"
 echo "  Log: $LOG_FILE"
 echo
+
+# Show all tasks that will be performed
+show_task_list
+
+# Confirmation prompt (if not --yes and not --dry-run)
+if ! $CONFIRM && ! $DRY_RUN; then
+  echo -e "${YEL}⚠${RST}  This will delete build files and caches. Continue? [y/N]"
+  read -r response
+  case "$response" in
+    [yY]|[yY][eE][sS]) ;;
+    *) echo "Cancelled."; exit 0 ;;
+  esac
+  echo
+fi
 
 # Optional: react-native-clean-project
 if $RUN_RN_CLEAN_PROJECT && command -v npx >/dev/null 2>&1; then
