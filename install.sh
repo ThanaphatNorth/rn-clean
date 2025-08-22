@@ -18,32 +18,32 @@ choose_target_dir() {
     echo "/usr/local/bin"
   elif [[ -d "/usr/local/bin" ]]; then
     # /usr/local/bin exists but is not writable, ask for permission to make it writable
-    echo "🔒 /usr/local/bin exists but is not writable by your user."
-    echo "   This is the preferred location for system-wide installations."
-    echo ""
+    echo "🔒 /usr/local/bin exists but is not writable by your user." >&2
+    echo "   This is the preferred location for system-wide installations." >&2
+    echo "" >&2
     read -p "Make /usr/local/bin writable for your user? [y/N]: " -n 1 -r
     echo
     if [[ $REPLY =~ ^[Yy]$ ]]; then
-      echo "🔧 Making /usr/local/bin writable..."
+      echo "🔧 Making /usr/local/bin writable..." >&2
       if sudo chown "$(whoami)" "/usr/local/bin"; then
-        echo "✅ /usr/local/bin is now writable by your user."
+        echo "✅ /usr/local/bin is now writable by your user." >&2
         echo "/usr/local/bin"
       else
-        echo "❌ Failed to make /usr/local/bin writable. Using ~/.local/bin instead."
+        echo "❌ Failed to make /usr/local/bin writable. Using ~/.local/bin instead." >&2
         echo "${HOME}/.local/bin"
       fi
     else
-      echo "📁 Using ~/.local/bin for user-specific installation."
+      echo "📁 Using ~/.local/bin for user-specific installation." >&2
       echo "${HOME}/.local/bin"
     fi
   else
     # /usr/local/bin doesn't exist, create it with proper permissions
-    echo "📁 /usr/local/bin doesn't exist. Creating it..."
+    echo "📁 /usr/local/bin doesn't exist. Creating it..." >&2
     if sudo mkdir -p "/usr/local/bin" && sudo chown "$(whoami)" "/usr/local/bin"; then
-      echo "✅ Created /usr/local/bin with your user ownership."
+      echo "✅ Created /usr/local/bin with your user ownership." >&2
       echo "/usr/local/bin"
     else
-      echo "❌ Failed to create /usr/local/bin. Using ~/.local/bin instead."
+      echo "❌ Failed to create /usr/local/bin. Using ~/.local/bin instead." >&2
       echo "${HOME}/.local/bin"
     fi
   fi
