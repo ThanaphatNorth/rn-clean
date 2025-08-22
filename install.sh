@@ -17,23 +17,14 @@ choose_target_dir() {
   if [[ -w "/usr/local/bin" ]]; then
     echo "/usr/local/bin"
   elif [[ -d "/usr/local/bin" ]]; then
-    # /usr/local/bin exists but is not writable, ask for permission to make it writable
+    # /usr/local/bin exists but is not writable, make it writable with sudo
     echo "🔒 /usr/local/bin exists but is not writable by your user." >&2
-    echo "   This is the preferred location for system-wide installations." >&2
-    echo "" >&2
-    read -p "Make /usr/local/bin writable for your user? [y/N]: " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-      echo "🔧 Making /usr/local/bin writable..." >&2
-      if sudo chown "$(whoami)" "/usr/local/bin"; then
-        echo "✅ /usr/local/bin is now writable by your user." >&2
-        echo "/usr/local/bin"
-      else
-        echo "❌ Failed to make /usr/local/bin writable. Using ~/.local/bin instead." >&2
-        echo "${HOME}/.local/bin"
-      fi
+    echo "🔧 Making /usr/local/bin writable with sudo..." >&2
+    if sudo chown "$(whoami)" "/usr/local/bin"; then
+      echo "✅ /usr/local/bin is now writable by your user." >&2
+      echo "/usr/local/bin"
     else
-      echo "📁 Using ~/.local/bin for user-specific installation." >&2
+      echo "❌ Failed to make /usr/local/bin writable. Using ~/.local/bin instead." >&2
       echo "${HOME}/.local/bin"
     fi
   else
@@ -87,18 +78,8 @@ main() {
   if [[ -w "$target_dir" ]]; then
     mv "$tmpfile" "$target_path"
   else
-    echo "🔒 '${target_dir}' requires elevated permissions to install."
-    echo ""
-    read -p "Use sudo to install rn-clean to ${target_dir}? [y/N]: " -n 1 -r
-    echo
-    if [[ $REPLY =~ ^[Yy]$ ]]; then
-      echo "🔧 Installing with sudo..."
-      sudo mv "$tmpfile" "$target_path"
-    else
-      echo "❌ Installation cancelled by user."
-      rm "$tmpfile"
-      exit 1
-    fi
+    echo "🔧 Installing with sudo to ${target_dir}..." >&2
+    sudo mv "$tmpfile" "$target_path"
   fi
 
   chmod +x "$target_path"
