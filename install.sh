@@ -105,14 +105,14 @@ check_existing_installation() {
       installed_version="unknown"
     fi
 
-    echo -e "${BLU}ℹ${RST}  rn-clean is already installed at: ${BOLD}${installed_path}${RST}"
-    echo -e "${BLU}ℹ${RST}  Installed version: ${BOLD}${installed_version}${RST}"
-    echo
+    echo -e "${BLU}ℹ${RST}  rn-clean is already installed at: ${BOLD}${installed_path}${RST}" >&2
+    echo -e "${BLU}ℹ${RST}  Installed version: ${BOLD}${installed_version}${RST}" >&2
+    echo >&2
 
     # Download to temp to check remote version
     local tmpfile
     tmpfile="$(mktemp)"
-    echo -e "${BLU}ℹ${RST}  Checking for updates..."
+    echo -e "${BLU}ℹ${RST}  Checking for updates..." >&2
     if download "$RAW_URL" "$tmpfile" 2>/dev/null; then
       local remote_version
       remote_version="$(cat "$tmpfile" | get_version_from_content)"
@@ -121,11 +121,11 @@ check_existing_installation() {
         remote_version="unknown"
       fi
 
-      echo -e "${BLU}ℹ${RST}  Latest version: ${BOLD}${remote_version}${RST}"
-      echo
+      echo -e "${BLU}ℹ${RST}  Latest version: ${BOLD}${remote_version}${RST}" >&2
+      echo >&2
 
       if [[ "$installed_version" == "$remote_version" ]]; then
-        echo -e "${GRN}✅${RST} You already have the latest version!"
+        echo -e "${GRN}✅${RST} You already have the latest version!" >&2
         rm -f "$tmpfile"
         exit 0
       fi
@@ -133,26 +133,26 @@ check_existing_installation() {
       # Check if update is available
       if [[ "$installed_version" != "unknown" && "$remote_version" != "unknown" ]]; then
         if version_compare "$remote_version" "$installed_version"; then
-          echo -e "${YEL}⚠${RST}  A new version is available: ${BOLD}${remote_version}${RST}"
+          echo -e "${YEL}⚠${RST}  A new version is available: ${BOLD}${remote_version}${RST}" >&2
         fi
       fi
 
-      echo -e "${YEL}?${RST}  Do you want to update rn-clean? [y/N]"
+      echo -e "${YEL}?${RST}  Do you want to update rn-clean? [y/N]" >&2
       read -r response
       case "$response" in
         [yY]|[yY][eE][sS])
-          echo
-          echo "$tmpfile"  # Return tmpfile path for installation
+          echo >&2
+          echo "$tmpfile"  # Return tmpfile path for installation (stdout)
           return 0
           ;;
         *)
-          echo "Update cancelled."
+          echo "Update cancelled." >&2
           rm -f "$tmpfile"
           exit 0
           ;;
       esac
     else
-      echo -e "${RED}❌${RST} Failed to check for updates."
+      echo -e "${RED}❌${RST} Failed to check for updates." >&2
       rm -f "$tmpfile"
       exit 1
     fi
