@@ -10,7 +10,39 @@ REPO_NAME="rn-clean"
 RAW_URL="https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/main/rn-clean.sh"
 TARGET_NAME="rn-clean"
 
+# Colors
+if [[ -t 1 && -z "${NO_COLOR:-}" ]]; then
+  BOLD="\033[1m"; RED="\033[31m"; YEL="\033[33m"; GRN="\033[32m"; BLU="\033[34m"; RST="\033[0m"
+else
+  BOLD=""; RED=""; YEL=""; GRN=""; BLU=""; RST=""
+fi
+
 has_cmd() { command -v "$1" >/dev/null 2>&1; }
+
+# Get version from script content
+get_version_from_content() {
+  grep -oE 'VERSION="[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | sed 's/VERSION="//;s/"//'
+}
+
+# Compare versions (returns 0 if $1 > $2)
+version_compare() {
+  [[ "$1" == "$2" ]] && return 1
+  local i
+  local IFS=.
+  read -ra ver1 <<< "$1"
+  read -ra ver2 <<< "$2"
+  for ((i=0; i<${#ver1[@]} || i<${#ver2[@]}; i++)); do
+    local v1="${ver1[i]:-0}"
+    local v2="${ver2[i]:-0}"
+    if ((10#$v1 > 10#$v2)); then
+      return 0
+    fi
+    if ((10#$v1 < 10#$v2)); then
+      return 1
+    fi
+  done
+  return 1
+}
 
 choose_target_dir() {
   # Prefer /usr/local/bin when writable, else ~/.local/bin (create if needed)
@@ -61,15 +93,95 @@ download() {
   fi
 }
 
+check_existing_installation() {
+  # Check if rn-clean is already installed
+  if has_cmd "$TARGET_NAME"; then
+    local installed_path
+    installed_path="$(command -v "$TARGET_NAME")"
+    local installed_version
+    installed_version="$(cat "$installed_path" | get_version_from_content)"
+
+    if [[ -z "$installed_version" ]]; then
+      installed_version="unknown"
+    fi
+
+    echo -e "${BLU}ℹ${RST}  rn-clean is already installed at: ${BOLD}${installed_path}${RST}"
+    echo -e "${BLU}ℹ${RST}  Installed version: ${BOLD}${installed_version}${RST}"
+    echo
+
+    # Download to temp to check remote version
+    local tmpfile
+    tmpfile="$(mktemp)"
+    echo -e "${BLU}ℹ${RST}  Checking for updates..."
+    if download "$RAW_URL" "$tmpfile" 2>/dev/null; then
+      local remote_version
+      remote_version="$(cat "$tmpfile" | get_version_from_content)"
+
+      if [[ -z "$remote_version" ]]; then
+        remote_version="unknown"
+      fi
+
+      echo -e "${BLU}ℹ${RST}  Latest version: ${BOLD}${remote_version}${RST}"
+      echo
+
+      if [[ "$installed_version" == "$remote_version" ]]; then
+        echo -e "${GRN}✅${RST} You already have the latest version!"
+        rm -f "$tmpfile"
+        exit 0
+      fi
+
+      # Check if update is available
+      if [[ "$installed_version" != "unknown" && "$remote_version" != "unknown" ]]; then
+        if version_compare "$remote_version" "$installed_version"; then
+          echo -e "${YEL}⚠${RST}  A new version is available: ${BOLD}${remote_version}${RST}"
+        fi
+      fi
+
+      echo -e "${YEL}?${RST}  Do you want to update rn-clean? [y/N]"
+      read -r response
+      case "$response" in
+        [yY]|[yY][eE][sS])
+          echo
+          echo "$tmpfile"  # Return tmpfile path for installation
+          return 0
+          ;;
+        *)
+          echo "Update cancelled."
+          rm -f "$tmpfile"
+          exit 0
+          ;;
+      esac
+    else
+      echo -e "${RED}❌${RST} Failed to check for updates."
+      rm -f "$tmpfile"
+      exit 1
+    fi
+  fi
+
+  # Not installed, return empty
+  echo ""
+  return 0
+}
+
 main() {
   local target_dir
   target_dir="$(choose_target_dir)"
   mkdir -p "$target_dir"
 
   local tmpfile
-  tmpfile="$(mktemp)"
-  echo "⬇️  Downloading rn-clean from ${RAW_URL} ..."
-  download "$RAW_URL" "$tmpfile"
+  local existing_tmpfile
+  existing_tmpfile="$(check_existing_installation)"
+
+  if [[ -n "$existing_tmpfile" && -f "$existing_tmpfile" ]]; then
+    # Use the already downloaded file for update
+    tmpfile="$existing_tmpfile"
+    echo "⬆️  Updating rn-clean..."
+  else
+    # Fresh install
+    tmpfile="$(mktemp)"
+    echo "⬇️  Downloading rn-clean from ${RAW_URL} ..."
+    download "$RAW_URL" "$tmpfile"
+  fi
 
   chmod +x "$tmpfile"
 
@@ -88,7 +200,11 @@ main() {
     sudo chmod 755 "$target_path"
   fi
 
-  echo "✅ Installed: ${target_path}"
+  if [[ -n "$existing_tmpfile" ]]; then
+    echo -e "${GRN}✅${RST} Updated: ${target_path}"
+  else
+    echo -e "${GRN}✅${RST} Installed: ${target_path}"
+  fi
   ensure_dir_on_path "$target_dir"
   echo
   echo "Run it anywhere:"

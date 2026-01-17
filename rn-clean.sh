@@ -12,6 +12,9 @@
 
 set -Eeuo pipefail
 
+# ========== Version ==========
+VERSION="1.0.0"
+
 # ========== Config ==========
 LOG_FILE="${LOG_FILE:-/tmp/rn-clean.log}"
 FAILED_COMMANDS=0
@@ -40,6 +43,81 @@ warn()  { echo -e "${YEL}⚠${RST}  $*"; }
 err()   { echo -e "${RED}❌${RST} $*"; }
 
 append_log() { printf "%s\n" "$*" >>"$LOG_FILE"; }
+
+# ========== Update Check ==========
+REPO_USER="ThanaphatNorth"
+REPO_NAME="rn-clean"
+RAW_URL="https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/main/rn-clean.sh"
+UPDATE_CHECK_FILE="${HOME}/.rn-clean-last-update-check"
+UPDATE_CHECK_INTERVAL=86400  # 24 hours in seconds
+
+# Compare versions (returns 0 if $1 > $2)
+version_gt() {
+  [[ "$1" == "$2" ]] && return 1
+  local i
+  local IFS=.
+  read -ra ver1 <<< "$1"
+  read -ra ver2 <<< "$2"
+  for ((i=0; i<${#ver1[@]} || i<${#ver2[@]}; i++)); do
+    local v1="${ver1[i]:-0}"
+    local v2="${ver2[i]:-0}"
+    if ((10#$v1 > 10#$v2)); then
+      return 0
+    fi
+    if ((10#$v1 < 10#$v2)); then
+      return 1
+    fi
+  done
+  return 1
+}
+
+check_for_updates() {
+  # Skip if NO_UPDATE_CHECK is set
+  [[ -n "${NO_UPDATE_CHECK:-}" ]] && return 0
+
+  # Check if we should skip (checked recently)
+  if [[ -f "$UPDATE_CHECK_FILE" ]]; then
+    local last_check
+    last_check=$(cat "$UPDATE_CHECK_FILE" 2>/dev/null || echo 0)
+    local now
+    now=$(date +%s)
+    if ((now - last_check < UPDATE_CHECK_INTERVAL)); then
+      return 0
+    fi
+  fi
+
+  # Update the check timestamp
+  date +%s > "$UPDATE_CHECK_FILE" 2>/dev/null || true
+
+  # Try to fetch latest version (with timeout, in background-ish manner)
+  local remote_content
+  if command -v curl >/dev/null 2>&1; then
+    remote_content=$(curl -fsSL --connect-timeout 2 --max-time 5 "$RAW_URL" 2>/dev/null) || return 0
+  elif command -v wget >/dev/null 2>&1; then
+    remote_content=$(wget -q --timeout=5 -O - "$RAW_URL" 2>/dev/null) || return 0
+  else
+    return 0
+  fi
+
+  # Extract remote version
+  local remote_version
+  remote_version=$(echo "$remote_content" | grep -oE 'VERSION="[0-9]+\.[0-9]+\.[0-9]+"' | head -1 | sed 's/VERSION="//;s/"//') || return 0
+
+  if [[ -z "$remote_version" ]]; then
+    return 0
+  fi
+
+  # Compare versions
+  if version_gt "$remote_version" "$VERSION"; then
+    echo
+    echo -e "${YEL}╭────────────────────────────────────────────────────────╮${RST}"
+    echo -e "${YEL}│${RST}  ${BOLD}Update available!${RST} ${DIM}${VERSION}${RST} → ${GRN}${remote_version}${RST}                      ${YEL}│${RST}"
+    echo -e "${YEL}│${RST}  Run: ${BLU}curl -fsSL https://raw.githubusercontent.com/${RST}    ${YEL}│${RST}"
+    echo -e "${YEL}│${RST}       ${BLU}${REPO_USER}/${REPO_NAME}/main/install.sh | bash${RST}  ${YEL}│${RST}"
+    echo -e "${YEL}╰────────────────────────────────────────────────────────╯${RST}"
+    echo
+  fi
+}
 
 check_permission_denied() {
   tail -n 50 "$LOG_FILE" | grep -qiE "permission denied|operation not permitted"
@@ -221,6 +299,10 @@ while [[ $# -gt 0 ]]; do
     --legacy-peer-deps) LEGACY_PEER_DEPS=true ;;
     --npm-ci) NPM_CI=true ;;
     --pm) PM="${2:-}"; shift ;;
+    -v|--version)
+      echo "rn-clean version $VERSION"
+      exit 0
+      ;;
     -h|--help)
       cat <<EOF
 Usage: $0 [options]
@@ -238,6 +320,7 @@ Options:
   --pm <npm|yarn|pnpm|bun>  Force package manager
   --legacy-peer-deps    Use npm --legacy-peer-deps when installing
   --npm-ci              Use npm ci when possible
+  -v, --version         Show version
   -h, --help            Show this help
 
 The script displays all tasks that will be performed before execution,
@@ -253,6 +336,9 @@ done
 # ========== Start ==========
 : > "$LOG_FILE"
 echo "React Native Clean Script Log - $(date)" >> "$LOG_FILE"
+
+# Check for updates (non-blocking, once per day)
+check_for_updates
 
 ensure_project_root
 detect_pm

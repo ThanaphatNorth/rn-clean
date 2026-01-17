@@ -26,6 +26,7 @@ Designed for safety, automation, and convenience for developers who often strugg
 - Colorful, developer-friendly output
 - Safe retry on permission errors (`chown` fix)
 - Cross-platform (macOS/Linux)
+- Automatic update notifications (checks once per day)
 
 ---
 
@@ -66,6 +67,17 @@ If `~/.local/bin` is used, ensure it’s on your PATH:
 echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.zshrc   # or ~/.bashrc
 ```
 
+### Update
+
+If you already have `rn-clean` installed, running the install script again will:
+1. Detect your existing installation
+2. Check for a new version
+3. Prompt you to update if a newer version is available
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/ThanaphatNorth/rn-clean/main/install.sh | bash
+```
+
 ### Uninstall
 
 ```bash
@@ -88,6 +100,7 @@ curl -fsSL https://raw.githubusercontent.com/ThanaphatNorth/rn-clean/main/uninst
 | `--pm <tool>`        | Force package manager (`npm`, `yarn`, `pnpm`, `bun`) |
 | `--legacy-peer-deps` | Use `npm install --legacy-peer-deps`                 |
 | `--npm-ci`           | Use `npm ci` instead of `npm install`                |
+| `-v` / `--version`   | Show version                                         |
 | `-h` / `--help`      | Show help message                                    |
 
 ---
@@ -106,6 +119,26 @@ rn-clean --dry-run
 
 # Force Yarn as package manager
 rn-clean --pm yarn
+```
+
+---
+
+## 🔄 Update Notifications
+
+`rn-clean` automatically checks for updates once every 24 hours when you run it. If a new version is available, you'll see a notification:
+
+```
+╭────────────────────────────────────────────────────────╮
+│  Update available! 1.0.0 → 1.1.0                       │
+│  Run: curl -fsSL https://raw.githubusercontent.com/    │
+│       ThanaphatNorth/rn-clean/main/install.sh | bash   │
+╰────────────────────────────────────────────────────────╯
+```
+
+To disable update checks, set `NO_UPDATE_CHECK=1`:
+
+```bash
+NO_UPDATE_CHECK=1 rn-clean
 ```
 
 ---
