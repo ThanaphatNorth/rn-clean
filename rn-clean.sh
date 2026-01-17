@@ -13,7 +13,7 @@
 set -Eeuo pipefail
 
 # ========== Version ==========
-VERSION="1.0.3"
+VERSION="1.0.4"
 
 # ========== Config ==========
 LOG_FILE="${LOG_FILE:-/tmp/rn-clean.log}"
