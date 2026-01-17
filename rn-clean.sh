@@ -13,7 +13,7 @@
 set -Eeuo pipefail
 
 # ========== Version ==========
-VERSION="1.0.1"
+VERSION="1.0.2"
 
 # ========== Config ==========
 LOG_FILE="${LOG_FILE:-/tmp/rn-clean.log}"
@@ -112,11 +112,65 @@ check_for_updates() {
     echo
     echo -e "${YEL}╭────────────────────────────────────────────────────────╮${RST}"
     echo -e "${YEL}│${RST}  ${BOLD}Update available!${RST} ${DIM}${VERSION}${RST} → ${GRN}${remote_version}${RST}                      ${YEL}│${RST}"
-    echo -e "${YEL}│${RST}  Run: ${BLU}curl -fsSL https://raw.githubusercontent.com/${RST}    ${YEL}│${RST}"
-    echo -e "${YEL}│${RST}       ${BLU}${REPO_USER}/${REPO_NAME}/main/install.sh | bash${RST}  ${YEL}│${RST}"
     echo -e "${YEL}╰────────────────────────────────────────────────────────╯${RST}"
     echo
+    echo -e "${YEL}?${RST}  Do you want to update now? [y/N]"
+    read -r update_response
+    case "$update_response" in
+      [yY]|[yY][eE][sS])
+        perform_self_update "$remote_content"
+        ;;
+      *)
+        log "Skipping update. You can update later with:"
+        echo -e "   ${BLU}curl -fsSL https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/main/install.sh | bash${RST}"
+        echo
+        ;;
+    esac
   fi
+}
+
+perform_self_update() {
+  local new_content="$1"
+  local script_path
+
+  # Find the installed script path
+  script_path="$(command -v rn-clean 2>/dev/null)" || script_path="$0"
+
+  # Resolve to absolute path if needed
+  if [[ ! "$script_path" = /* ]]; then
+    script_path="$(cd "$(dirname "$script_path")" && pwd)/$(basename "$script_path")"
+  fi
+
+  log "Updating rn-clean at: $script_path"
+
+  # Create temp file with new content
+  local tmpfile
+  tmpfile="$(mktemp)"
+  echo "$new_content" > "$tmpfile"
+  chmod +x "$tmpfile"
+
+  # Try to replace the script
+  if [[ -w "$script_path" ]]; then
+    mv "$tmpfile" "$script_path"
+    ok "Updated successfully!"
+  elif [[ -w "$(dirname "$script_path")" ]]; then
+    mv "$tmpfile" "$script_path"
+    ok "Updated successfully!"
+  else
+    log "Requires sudo to update..."
+    if sudo mv "$tmpfile" "$script_path" && sudo chmod 755 "$script_path"; then
+      ok "Updated successfully!"
+    else
+      err "Failed to update. Please run manually:"
+      echo -e "   ${BLU}curl -fsSL https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/main/install.sh | bash${RST}"
+      rm -f "$tmpfile"
+      return 1
+    fi
+  fi
+
+  echo
+  echo -e "${GRN}✅${RST} Please re-run ${BOLD}rn-clean${RST} to use the new version."
+  exit 0
 }
 
 check_permission_denied() {
