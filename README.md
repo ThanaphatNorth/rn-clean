@@ -17,8 +17,11 @@ Designed for safety, automation, and convenience for developers who often strugg
 - Clears **Watchman** watches
 - Auto-detects package manager (`npm`, `yarn`, `pnpm`, `bun`)
 - Reinstalls dependencies
+- Links assets with `react-native-asset`
 - Runs `pod install` (with retry `--repo-update` if needed)
+- Runs `gradlew clean` after cleanup
 - Optional `react-native-clean-project` integration
+- Shows task list preview before execution
 - Detailed log file in `/tmp/rn-clean.log`
 - Colorful, developer-friendly output
 - Safe retry on permission errors (`chown` fix)
@@ -85,6 +88,7 @@ curl -fsSL https://raw.githubusercontent.com/ThanaphatNorth/rn-clean/main/uninst
 | `--pm <tool>`        | Force package manager (`npm`, `yarn`, `pnpm`, `bun`) |
 | `--legacy-peer-deps` | Use `npm install --legacy-peer-deps`                 |
 | `--npm-ci`           | Use `npm ci` instead of `npm install`                |
+| `-h` / `--help`      | Show help message                                    |
 
 ---
 

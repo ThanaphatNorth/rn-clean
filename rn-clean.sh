@@ -122,19 +122,19 @@ gradle_cmd() {
 show_task_list() {
   echo -e "${BOLD}📋 Tasks to be performed:${RST}"
   echo
-  
+
   # React Native Clean Project
   if $RUN_RN_CLEAN_PROJECT && command -v npx >/dev/null 2>&1; then
     echo -e "  ${BLU}•${RST} Run react-native-clean-project"
   fi
-  
+
   # JavaScript cleanup
   echo -e "  ${BLU}•${RST} Remove node_modules directory"
   [[ -f package-lock.json ]] && echo -e "  ${BLU}•${RST} Remove package-lock.json"
   [[ -f yarn.lock ]] && echo -e "  ${BLU}•${RST} Remove yarn.lock"
   [[ -f pnpm-lock.yaml ]] && echo -e "  ${BLU}•${RST} Remove pnpm-lock.yaml"
   [[ -f bun.lockb ]] && echo -e "  ${BLU}•${RST} Remove bun.lockb"
-  
+
   # iOS cleanup
   if $DO_IOS && [[ -d ios ]]; then
     echo -e "  ${BLU}•${RST} Clean iOS Pods and Podfile.lock"
@@ -143,7 +143,7 @@ show_task_list() {
       echo -e "  ${BLU}•${RST} Clean Xcode DerivedData"
     fi
   fi
-  
+
   # Android cleanup
   if $DO_ANDROID && [[ -d android ]]; then
     echo -e "  ${BLU}•${RST} Clean Android .gradle (project)"
@@ -158,12 +158,12 @@ show_task_list() {
       echo -e "  ${BLU}•${RST} Stop Gradle daemon"
     fi
   fi
-  
+
   # Watchman
   if command -v watchman >/dev/null 2>&1; then
     echo -e "  ${BLU}•${RST} Clear Watchman watches"
   fi
-  
+
   # Package manager cache
   case "$PM" in
     npm)  echo -e "  ${BLU}•${RST} Clean npm cache" ;;
@@ -171,7 +171,7 @@ show_task_list() {
     pnpm) echo -e "  ${BLU}•${RST} Prune pnpm store" ;;
     bun)  ;; # No cache clean for bun
   esac
-  
+
   # Reinstall dependencies
   if $DO_INSTALL; then
     case "$PM" in
@@ -190,18 +190,21 @@ show_task_list() {
       pnpm) echo -e "  ${BLU}•${RST} Install dependencies with pnpm" ;;
       bun)  echo -e "  ${BLU}•${RST} Install dependencies with bun" ;;
     esac
+    if command -v npx >/dev/null 2>&1; then
+      echo -e "  ${BLU}•${RST} Link assets with react-native-asset"
+    fi
   fi
-  
+
   # CocoaPods
   if $DO_IOS && $DO_PODS && [[ -d ios ]] && is_macos && command -v pod >/dev/null 2>&1; then
     echo -e "  ${BLU}•${RST} Run pod install"
   fi
-  
+
   # Gradle clean
   if $DO_ANDROID && [[ -d android ]] && [[ -x android/gradlew ]]; then
     echo -e "  ${BLU}•${RST} Run Gradle clean"
   fi
-  
+
   echo
 }
 
@@ -347,6 +350,23 @@ pm_cache_clean
 if $DO_INSTALL; then
   log "Installing JS dependencies ($PM)..."
   pm_install
+
+  # Link assets with react-native-asset
+  if command -v npx >/dev/null 2>&1; then
+    log "Running npx react-native-asset (auto-answers y)..."
+    if $DRY_RUN; then
+      echo "DRY-RUN: npx react-native-asset" | tee -a "$LOG_FILE"
+    else
+      echo "y" | npx react-native-asset >>"$LOG_FILE" 2>&1 || {
+        warn "react-native-asset failed (continuing...)"
+        tail -n 20 "$LOG_FILE" | sed 's/^/  /'
+        FAILED_COMMANDS=$((FAILED_COMMANDS+1))
+      }
+      ok "Linking assets with react-native-asset"
+    fi
+  else
+    warn "npx not found; skipping react-native-asset."
+  fi
 else
   warn "Skipping JS install (--no-install)."
 fi
