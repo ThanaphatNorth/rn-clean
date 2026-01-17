@@ -149,7 +149,7 @@ check_existing_installation() {
   fi
 
   echo -e "${YEL}?${RST}  Do you want to update rn-clean? [y/N]"
-  read -r response
+  read -r response < /dev/tty
   case "$response" in
     [yY]|[yY][eE][sS])
       echo
