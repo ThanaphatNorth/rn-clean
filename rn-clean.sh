@@ -13,7 +13,7 @@
 set -Eeuo pipefail
 
 # ========== Version ==========
-VERSION="1.0.0"
+VERSION="1.0.1"
 
 # ========== Config ==========
 LOG_FILE="${LOG_FILE:-/tmp/rn-clean.log}"
@@ -298,7 +298,15 @@ while [[ $# -gt 0 ]]; do
     --no-clean-project) RUN_RN_CLEAN_PROJECT=false ;;
     --legacy-peer-deps) LEGACY_PEER_DEPS=true ;;
     --npm-ci) NPM_CI=true ;;
-    --pm) PM="${2:-}"; shift ;;
+    --pm)
+      PM="${2:-}"
+      if [[ ! "$PM" =~ ^(npm|yarn|pnpm|bun)$ ]]; then
+        err "Invalid package manager: $PM"
+        err "Valid options: npm, yarn, pnpm, bun"
+        exit 1
+      fi
+      shift
+      ;;
     -v|--version)
       echo "rn-clean version $VERSION"
       exit 0
@@ -333,6 +341,41 @@ EOF
   shift
 done
 
+# ========== Pre-flight Check ==========
+preflight_check() {
+  local missing=()
+
+  # Check for package manager
+  if [[ -z "$PM" ]]; then
+    if ! command -v npm >/dev/null 2>&1; then
+      missing+=("npm (or yarn/pnpm/bun)")
+    fi
+  else
+    if ! command -v "$PM" >/dev/null 2>&1; then
+      missing+=("$PM")
+    fi
+  fi
+
+  # Check for iOS tools (if iOS cleanup enabled)
+  if $DO_IOS && [[ -d ios ]] && is_macos; then
+    if ! command -v pod >/dev/null 2>&1; then
+      warn "CocoaPods not found - iOS pod install will be skipped"
+    fi
+  fi
+
+  # Check for Android tools (if Android cleanup enabled)
+  if $DO_ANDROID && [[ -d android ]]; then
+    if [[ ! -x android/gradlew ]]; then
+      warn "gradlew not found - Gradle commands will be skipped"
+    fi
+  fi
+
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    err "Missing required tools: ${missing[*]}"
+    exit 1
+  fi
+}
+
 # ========== Start ==========
 : > "$LOG_FILE"
 echo "React Native Clean Script Log - $(date)" >> "$LOG_FILE"
@@ -342,6 +385,7 @@ check_for_updates
 
 ensure_project_root
 detect_pm
+preflight_check
 
 echo -e "🧹 ${BOLD}Starting React Native project cleanup${RST}"
 echo "  PM: $PM"
