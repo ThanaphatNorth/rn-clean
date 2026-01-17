@@ -13,7 +13,7 @@
 set -Eeuo pipefail
 
 # ========== Version ==========
-VERSION="1.0.2"
+VERSION="1.0.3"
 
 # ========== Config ==========
 LOG_FILE="${LOG_FILE:-/tmp/rn-clean.log}"
@@ -48,8 +48,6 @@ append_log() { printf "%s\n" "$*" >>"$LOG_FILE"; }
 REPO_USER="ThanaphatNorth"
 REPO_NAME="rn-clean"
 RAW_URL="https://raw.githubusercontent.com/${REPO_USER}/${REPO_NAME}/main/rn-clean.sh"
-UPDATE_CHECK_FILE="${HOME}/.rn-clean-last-update-check"
-UPDATE_CHECK_INTERVAL=86400  # 24 hours in seconds
 
 # Compare versions (returns 0 if $1 > $2)
 version_gt() {
@@ -75,21 +73,7 @@ check_for_updates() {
   # Skip if NO_UPDATE_CHECK is set
   [[ -n "${NO_UPDATE_CHECK:-}" ]] && return 0
 
-  # Check if we should skip (checked recently)
-  if [[ -f "$UPDATE_CHECK_FILE" ]]; then
-    local last_check
-    last_check=$(cat "$UPDATE_CHECK_FILE" 2>/dev/null || echo 0)
-    local now
-    now=$(date +%s)
-    if ((now - last_check < UPDATE_CHECK_INTERVAL)); then
-      return 0
-    fi
-  fi
-
-  # Update the check timestamp
-  date +%s > "$UPDATE_CHECK_FILE" 2>/dev/null || true
-
-  # Try to fetch latest version (with timeout, in background-ish manner)
+  # Try to fetch latest version (with timeout)
   local remote_content
   if command -v curl >/dev/null 2>&1; then
     remote_content=$(curl -fsSL --connect-timeout 2 --max-time 5 "$RAW_URL" 2>/dev/null) || return 0
