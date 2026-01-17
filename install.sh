@@ -93,74 +93,75 @@ download() {
   fi
 }
 
+# Global variable to store tmpfile path from check
+UPDATE_TMPFILE=""
+
 check_existing_installation() {
   # Check if rn-clean is already installed
-  if has_cmd "$TARGET_NAME"; then
-    local installed_path
-    installed_path="$(command -v "$TARGET_NAME")"
-    local installed_version
-    installed_version="$(cat "$installed_path" | get_version_from_content)"
+  if ! has_cmd "$TARGET_NAME"; then
+    return 1  # Not installed
+  fi
 
-    if [[ -z "$installed_version" ]]; then
-      installed_version="unknown"
-    fi
+  local installed_path
+  installed_path="$(command -v "$TARGET_NAME")"
+  local installed_version
+  installed_version="$(cat "$installed_path" | get_version_from_content)"
 
-    echo -e "${BLU}ℹ${RST}  rn-clean is already installed at: ${BOLD}${installed_path}${RST}" >&2
-    echo -e "${BLU}ℹ${RST}  Installed version: ${BOLD}${installed_version}${RST}" >&2
-    echo >&2
+  if [[ -z "$installed_version" ]]; then
+    installed_version="unknown"
+  fi
 
-    # Download to temp to check remote version
-    local tmpfile
-    tmpfile="$(mktemp)"
-    echo -e "${BLU}ℹ${RST}  Checking for updates..." >&2
-    if download "$RAW_URL" "$tmpfile" 2>/dev/null; then
-      local remote_version
-      remote_version="$(cat "$tmpfile" | get_version_from_content)"
+  echo -e "${BLU}ℹ${RST}  rn-clean is already installed at: ${BOLD}${installed_path}${RST}"
+  echo -e "${BLU}ℹ${RST}  Installed version: ${BOLD}${installed_version}${RST}"
+  echo
 
-      if [[ -z "$remote_version" ]]; then
-        remote_version="unknown"
-      fi
+  # Download to temp to check remote version
+  local tmpfile
+  tmpfile="$(mktemp)"
+  echo -e "${BLU}ℹ${RST}  Checking for updates..."
+  if ! download "$RAW_URL" "$tmpfile" 2>/dev/null; then
+    echo -e "${RED}❌${RST} Failed to check for updates."
+    rm -f "$tmpfile"
+    return 2  # Failed to check
+  fi
 
-      echo -e "${BLU}ℹ${RST}  Latest version: ${BOLD}${remote_version}${RST}" >&2
-      echo >&2
+  local remote_version
+  remote_version="$(cat "$tmpfile" | get_version_from_content)"
 
-      if [[ "$installed_version" == "$remote_version" ]]; then
-        echo -e "${GRN}✅${RST} You already have the latest version!" >&2
-        rm -f "$tmpfile"
-        exit 0
-      fi
+  if [[ -z "$remote_version" ]]; then
+    remote_version="unknown"
+  fi
 
-      # Check if update is available
-      if [[ "$installed_version" != "unknown" && "$remote_version" != "unknown" ]]; then
-        if version_compare "$remote_version" "$installed_version"; then
-          echo -e "${YEL}⚠${RST}  A new version is available: ${BOLD}${remote_version}${RST}" >&2
-        fi
-      fi
+  echo -e "${BLU}ℹ${RST}  Latest version: ${BOLD}${remote_version}${RST}"
+  echo
 
-      echo -e "${YEL}?${RST}  Do you want to update rn-clean? [y/N]" >&2
-      read -r response
-      case "$response" in
-        [yY]|[yY][eE][sS])
-          echo >&2
-          echo "$tmpfile"  # Return tmpfile path for installation (stdout)
-          return 0
-          ;;
-        *)
-          echo "Update cancelled." >&2
-          rm -f "$tmpfile"
-          exit 0
-          ;;
-      esac
-    else
-      echo -e "${RED}❌${RST} Failed to check for updates." >&2
-      rm -f "$tmpfile"
-      exit 1
+  if [[ "$installed_version" == "$remote_version" ]]; then
+    echo -e "${GRN}✅${RST} You already have the latest version!"
+    rm -f "$tmpfile"
+    return 3  # Already latest
+  fi
+
+  # Check if update is available
+  if [[ "$installed_version" != "unknown" && "$remote_version" != "unknown" ]]; then
+    if version_compare "$remote_version" "$installed_version"; then
+      echo -e "${YEL}⚠${RST}  A new version is available: ${BOLD}${remote_version}${RST}"
     fi
   fi
 
-  # Not installed, return empty
-  echo ""
-  return 0
+  echo -e "${YEL}?${RST}  Do you want to update rn-clean? [y/N]"
+  read -r response
+  case "$response" in
+    [yY]|[yY][eE][sS])
+      echo
+      UPDATE_TMPFILE="$tmpfile"
+      return 0  # User wants to update
+      ;;
+    *)
+      echo "Update cancelled."
+      rm -f "$tmpfile"
+      return 4  # User cancelled
+      ;;
+  esac
 }
 
 main() {
@@ -169,19 +170,32 @@ main() {
   mkdir -p "$target_dir"
 
   local tmpfile
-  local existing_tmpfile
-  existing_tmpfile="$(check_existing_installation)"
+  local check_result
 
-  if [[ -n "$existing_tmpfile" && -f "$existing_tmpfile" ]]; then
-    # Use the already downloaded file for update
-    tmpfile="$existing_tmpfile"
-    echo "⬆️  Updating rn-clean..."
-  else
-    # Fresh install
-    tmpfile="$(mktemp)"
-    echo "⬇️  Downloading rn-clean from ${RAW_URL} ..."
-    download "$RAW_URL" "$tmpfile"
-  fi
+  # Check for existing installation
+  check_existing_installation
+  check_result=$?
+
+  case $check_result in
+    0)  # User wants to update
+      tmpfile="$UPDATE_TMPFILE"
+      echo "⬆️  Updating rn-clean..."
+      ;;
+    1)  # Not installed - fresh install
+      tmpfile="$(mktemp)"
+      echo "⬇️  Downloading rn-clean from ${RAW_URL} ..."
+      download "$RAW_URL" "$tmpfile"
+      ;;
+    2)  # Failed to check for updates
+      exit 1
+      ;;
+    3)  # Already have latest version
+      exit 0
+      ;;
+    4)  # User cancelled update
+      exit 0
+      ;;
+  esac
 
   chmod +x "$tmpfile"
 
@@ -200,7 +214,7 @@ main() {
     sudo chmod 755 "$target_path"
   fi
 
-  if [[ -n "$existing_tmpfile" ]]; then
+  if [[ "$check_result" -eq 0 ]]; then
     echo -e "${GRN}✅${RST} Updated: ${target_path}"
   else
     echo -e "${GRN}✅${RST} Installed: ${target_path}"
